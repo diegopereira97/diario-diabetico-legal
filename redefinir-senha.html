@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redefinir senha — Diário do Diabético</title>
+<style>
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    max-width: 420px;
+    margin: 60px auto;
+    padding: 0 20px 60px;
+    color: #1a1a1a;
+    background: #fdfdfd;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.subtitulo { color: #666; font-size: 14px; margin-bottom: 28px; }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #333;
+  }
+  input[type="password"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    font-size: 15px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    margin-bottom: 8px;
+  }
+  .dica {
+    font-size: 12px;
+    color: #777;
+    margin-bottom: 18px;
+  }
+  button {
+    width: 100%;
+    padding: 14px;
+    font-size: 15px;
+    font-weight: 700;
+    color: white;
+    background: #00386C;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button:disabled {
+    background: #99aebf;
+    cursor: not-allowed;
+  }
+  .mensagem {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  .mensagem.erro { background: #FDECEC; color: #B3261E; }
+  .mensagem.sucesso { background: #E8F5E9; color: #1B5E20; }
+  .oculto { display: none; }
+  .check { font-size: 48px; text-align: center; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<div id="tela-formulario">
+  <h1>Definir nova senha</h1>
+  <p class="subtitulo">Escolha uma nova senha para sua conta no Diário do Diabético.</p>
+
+  <form id="form-senha">
+    <label for="senha">Nova senha</label>
+    <input type="password" id="senha" autocomplete="new-password" required>
+    <p class="dica">Mínimo de 8 caracteres, com letras e números.</p>
+
+    <label for="confirmar">Confirmar nova senha</label>
+    <input type="password" id="confirmar" autocomplete="new-password" required>
+
+    <div style="height: 18px"></div>
+    <button type="submit" id="botao-enviar">Salvar nova senha</button>
+  </form>
+
+  <div id="mensagem" class="mensagem oculto"></div>
+</div>
+
+<div id="tela-sucesso" class="oculto">
+  <div class="check">✅</div>
+  <h1 style="text-align:center">Senha atualizada!</h1>
+  <p class="subtitulo" style="text-align:center">Pode fechar esta página e voltar ao app para fazer login com a nova senha.</p>
+</div>
+
+<div id="tela-link-invalido" class="oculto">
+  <h1>Link inválido ou expirado</h1>
+  <p class="subtitulo">
+    Esse link de redefinição de senha não é mais válido — links de recuperação
+    expiram depois de um tempo ou depois de usados uma vez.
+    Volte ao app e solicite um novo link em "Esqueci minha senha".
+  </p>
+</div>
+
+<!--
+  ⚠️ ANTES DE PUBLICAR: preencha SUPABASE_URL e SUPABASE_ANON_KEY abaixo.
+  A anon key é segura para expor no cliente — é a mesma usada no app
+  Flutter — mas apenas se você mantiver Row Level Security (RLS) ativo
+  nas suas tabelas (o backend já assume isso).
+  Encontre os dois valores em: painel do Supabase → Project Settings → API.
+-->
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  const SUPABASE_URL = 'https://akfdrmipqnjrdvlgsrsm.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFrZmRybWlwcW5qcmR2bGdzcnNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MjU3ODAsImV4cCI6MjA5MDUwMTc4MH0.1RohvbxNgl7dVP2JHvEsa5Bxj0RFqyqMdjoBF-Vqc0Y';
+
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const telaFormulario = document.getElementById('tela-formulario');
+  const telaSucesso = document.getElementById('tela-sucesso');
+  const telaLinkInvalido = document.getElementById('tela-link-invalido');
+  const form = document.getElementById('form-senha');
+  const botaoEnviar = document.getElementById('botao-enviar');
+  const mensagemEl = document.getElementById('mensagem');
+
+  function mostrarMensagem(texto, tipo) {
+    mensagemEl.textContent = texto;
+    mensagemEl.className = 'mensagem ' + tipo;
+  }
+
+  function validarSenha(senha) {
+    if (senha.length < 8) return 'Mínimo de 8 caracteres.';
+    if (!/[a-zA-Z]/.test(senha) || !/[0-9]/.test(senha)) return 'Use letras e números.';
+    return null;
+  }
+
+  async function iniciar() {
+    // O Supabase entrega o token de recuperação como fragmento da URL
+    // (depois do #), não como parte "normal" da URL — por isso lemos
+    // location.hash em vez de query params.
+    const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
+    const accessToken = hashParams.get('access_token');
+    const refreshToken = hashParams.get('refresh_token');
+    const type = hashParams.get('type');
+
+    if (!accessToken || !refreshToken || type !== 'recovery') {
+      telaFormulario.classList.add('oculto');
+      telaLinkInvalido.classList.remove('oculto');
+      return;
+    }
+
+    const { error } = await supabaseClient.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+
+    if (error) {
+      telaFormulario.classList.add('oculto');
+      telaLinkInvalido.classList.remove('oculto');
+    }
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const senha = document.getElementById('senha').value;
+    const confirmar = document.getElementById('confirmar').value;
+
+    const erroValidacao = validarSenha(senha);
+    if (erroValidacao) {
+      mostrarMensagem(erroValidacao, 'erro');
+      return;
+    }
+
+    if (senha !== confirmar) {
+      mostrarMensagem('As senhas não coincidem.', 'erro');
+      return;
+    }
+
+    botaoEnviar.disabled = true;
+    botaoEnviar.textContent = 'Salvando...';
+
+    const { error } = await supabaseClient.auth.updateUser({ password: senha });
+
+    if (error) {
+      botaoEnviar.disabled = false;
+      botaoEnviar.textContent = 'Salvar nova senha';
+      mostrarMensagem('Não foi possível salvar a nova senha. Tente pedir um novo link.', 'erro');
+      return;
+    }
+
+    telaFormulario.classList.add('oculto');
+    telaSucesso.classList.remove('oculto');
+
+    // Encerra a sessão de recuperação — não queremos deixar uma sessão
+    // logada aberta dentro do navegador depois disso.
+    await supabaseClient.auth.signOut();
+  });
+
+  iniciar();
+</script>
+
+</body>
+</html>
